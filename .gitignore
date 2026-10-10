@@ -1,0 +1,136 @@
+# Local environment files and private keys; keep shareable configuration templates.
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.sample
+!.env.*.sample
+!.env.template
+!.env.*.template
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Python environments (including the local speech environment and MCP tooling).
+.venv/
+.venv-*/
+.venv_*/
+venv/
+venv-*/
+venv_*/
+ENV/
+/.agents/mcp/symdex-venv*/
+
+# Optional third-party MCP tools and machine-specific client configuration.
+# Keep .agents/skills/, .agents/workflow-kit/, and the MCP setup documentation.
+/.agents/mcp/ponytail/
+/.agents/mcp/symdex/
+/.agents/mcp/mcp.json
+
+# Python bytecode, package metadata, tool caches, and test reports.
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.pyre/
+.tox/
+.nox/
+.hypothesis/
+.ipynb_checkpoints/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# ROS2 / colcon and Python package build output.
+/ros2_ws/build/
+/ros2_ws/install/
+/ros2_ws/log/
+build/
+dist/
+
+# CMake-generated files; retain source CMakeLists.txt and hand-written Makefiles.
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+cmake-build-*/
+
+# Rust build output; Cargo.lock is intentionally retained.
+target/
+
+# Node / Vite dependencies, build output, caches, and coverage.
+node_modules/
+dist-ssr/
+.vite/
+.npm/
+.pnpm-store/
+*.tsbuildinfo
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Runtime logs and caches (including rotated HailoRT logs and SymDex indexes).
+*.log
+*.log.*
+.cache/
+.symdex/
+
+# Local RL runs and downloaded checkpoints; deployed policies remain versioned.
+/ai/rl/**/outputs/
+/ai/rl/**/multirun/
+/ai/rl/**/output_*/
+/ai/rl/**/checkpoint/
+/ai/rl/**/checkpoints/
+/ai/rl/**/wandb/
+/ai/rl/**/.hydra/
+
+# Downloaded voice models and locally added Piper model copies.
+/ai/llm-ui/agent-starter-python/models/
+/ai/llm-ui/piper-voices/en_US-lessac-low.onnx
+/ai/llm-ui/piper-voices/en_US-lessac-low.onnx.json
+# Keep upstream model, policy, and mesh assets versioned.
+
+# Local audio recordings and scratch ROS bags (existing project conventions).
+*.wav
+untracked_bags/
+# Keep curated bags/*.mcap, metadata.yaml, and animation CSV files versioned.
+# Image extraction output is reproducible from the original bag files.
+/bags/**/extracted_images/
+/bags/**/detection_results/
+
+# Packer downloads, plugins, disk images, and generated image-version markers.
+/infra/pupper_image_builder/.packer_cache/
+/infra/pupper_image_builder/.packer_plugins/
+/infra/pupper_image_builder/packer_cache/
+/infra/pupper_image_builder/*.img
+/infra/pupper_image_builder/*.img.*
+/infra/pupper_image_builder/pupOS_pios_full_*
+# Keep resources/*.deb and versioned ONNX / HEF / mesh assets.
+
+# OS metadata and editor scratch files; retain shared .vscode configuration.
+*.DS_Store
+._*
+.AppleDouble/
+.LSOverride
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.idea/
+*.swp
+*.swo
+*.swn
+*~
+*.blend[0-9]
