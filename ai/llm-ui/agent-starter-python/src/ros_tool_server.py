@@ -23,6 +23,7 @@ import io
 import gemini_utils
 import ros_image_utils
 import os
+from appearance_follow_client import AppearanceFollowClient
 
 logger = logging.getLogger("ros_tool_server")
 AVAILABLE_CONTROLLERS = {
@@ -282,6 +283,16 @@ class RosToolServer():
 
         self.activate_person_following_client = self.node.create_client(Trigger, "activate_person_following")
         self.deactivate_person_following_client = self.node.create_client(Trigger, "deactivate_person_following")
+        self.person_follow_mode = os.getenv("PUPSTER_PERSON_FOLLOW_MODE", "ordinary").strip().lower()
+        if self.person_follow_mode not in {"ordinary", "appearance"}:
+            raise ValueError("PUPSTER_PERSON_FOLLOW_MODE must be ordinary or appearance")
+        self.appearance_clients = {}
+        self._appearance_stop_unconfirmed = False
+        self.appearance_follow = AppearanceFollowClient(
+            self._call_appearance_service,
+            lambda: is_controller_active(self, self.current_walking_controller),
+            settle_delay=0.6, walking_timeout=8.0,
+        )
         self.following_mode_status = "inactive"
 
         # Initialize command queue
@@ -293,6 +304,8 @@ class RosToolServer():
         # Publish LLM commands through cmd_vel_mux so teleop and e-stop keep
         # their higher-priority safety behavior.
         self.cmd_vel_topic = os.getenv("PUPSTER_CMD_VEL_TOPIC", "/llm_cmd_vel")
+        if self.person_follow_mode == "appearance" and self.cmd_vel_topic != "/llm_cmd_vel":
+            raise ValueError("Appearance mode requires PUPSTER_CMD_VEL_TOPIC=/llm_cmd_vel for confirmed-stop override")
         self.twist_pub = self.node.create_publisher(Twist, self.cmd_vel_topic, 10)
         self.node.get_logger().info(
             f"Publishing voice movement commands to {self.cmd_vel_topic}"
@@ -310,6 +323,12 @@ class RosToolServer():
             self._on_image,
             1,
         )
+
+        if self.person_follow_mode == "appearance":
+            self.appearance_stop_timer = self.image_node.create_timer(0.05, self._publish_appearance_stop)
+            self.image_node.create_subscription(
+                String, "/appearance_follow/status", self._on_appearance_status, 1,
+            )
 
         self.gemini_annotated_image_publisher = self.node.create_publisher(
             CompressedImage, "/gemini/annotated_image", 10
@@ -428,6 +447,12 @@ class RosToolServer():
 
     async def add_command(self, command: Command) -> None:
         """Add a command to the queue"""
+        if self.person_follow_mode == "appearance" and isinstance(
+            command, (MoveCommand, MoveForTimeCommand, AnimationCommand, DeactivateCommand),
+        ):
+            stopped, message = await self.deactivate_person_following()
+            if not stopped:
+                raise RuntimeError("Cannot change motion while follow stop is unconfirmed: " + message)
         await self.command_queue.put(command)
         self.node.get_logger().info(f"Added command {command.name} to queue")
 
@@ -544,34 +569,103 @@ class RosToolServer():
         self.node.get_logger().warning("IMMEDIATE STOP initiated")
         start_time = time.time()
 
+        stopped, stop_message = await self.deactivate_person_following()
+
         # Then clear the queue
         await self.clear_queue()
 
         # First interrupt and stop
         await self._interrupt_and_stop()
 
+        if self.person_follow_mode == "appearance" and not stopped:
+            return False, "Follow stop unconfirmed; holding zero velocity: " + stop_message
         self.node.get_logger().warning(f"IMMEDIATE STOP completed. Took: {time.time() - start_time:0.3f} seconds")
         return True, "Immediate stop completed: robot stopped and queue cleared"
 
+    def _on_appearance_status(self, message):
+        self.following_mode_status = "active" if " LOCKED:" in message.data else "inactive"
+
+    def _publish_appearance_stop(self):
+        # Runs on the image-node executor thread, independently of blocking ROS
+        # service waits on the voice event loop. A single zero would expire.
+        if self._appearance_stop_unconfirmed:
+            self.twist_pub.publish(Twist())
+
+    def _hold_appearance_stop(self):
+        self._appearance_stop_unconfirmed = True
+        self.twist_pub.publish(Twist())
+
+    async def _call_appearance_service(self, action) -> Tuple[bool, str]:
+        if action == "deactivate":
+            self._hold_appearance_stop()
+        name = "/appearance_follow/" + action
+        if name not in self.appearance_clients:
+            self.appearance_clients[name] = self.node.create_client(Trigger, name)
+        client = self.appearance_clients[name]
+        if not client.wait_for_service(timeout_sec=0.5):
+            return False, "Missing service: " + name
+        if action == "ready":
+            publishers = self.node.get_publishers_info_by_topic("/person_following_cmd_vel")
+            if len(publishers) != 1 or publishers[0].node_name != "appearance_person_follower":
+                return False, "Expected exactly one appearance-follow velocity publisher"
+        future = client.call_async(Trigger.Request())
+        rclpy.spin_until_future_complete(self.node, future, timeout_sec=3.0)
+        if not future.done() or future.result() is None:
+            future.cancel()
+            return False, "Service timed out: " + name
+        result = future.result()
+        if action == "deactivate" and result.success:
+            self._appearance_stop_unconfirmed = False
+        return result.success, result.message
+
+    async def _prepare_appearance_follow(self):
+        await self.clear_queue()
+        task = self.current_command_task
+        if task and not task.done():
+            task.cancel()
+            try:
+                await asyncio.wait_for(task, timeout=0.5)
+            except asyncio.CancelledError:
+                pass
+        await StopCommand().execute(self)
+
+    async def activate_appearance_following(self, shirt_color: str) -> Tuple[bool, str]:
+        if self.person_follow_mode != "appearance":
+            return False, "Start ROS with person_follow_mode:=appearance and set PUPSTER_PERSON_FOLLOW_MODE=appearance"
+        # Preparation runs inside the acquisition transaction so STOP invalidates
+        # even requests that are still cancelling an old movement command.
+        success, message = await self.appearance_follow.follow(
+            shirt_color, prepare=self._prepare_appearance_follow,
+        )
+        self.following_mode_status = "active" if success else "inactive"
+        return success, message
+
     async def activate_person_following(self) -> Tuple[bool, str]:
+        if self.person_follow_mode == "appearance":
+            return False, "Appearance mode requires an explicit upper-shirt colour; use activate_appearance_following"
         self.node.get_logger().info("Activating person following...")
         fut = self.activate_person_following_client.call_async(Trigger.Request())
-        rclpy.spin_until_future_complete(self.node, fut)
-        if fut.result() is not None:
-            self.following_mode_status = "active"
+        rclpy.spin_until_future_complete(self.node, fut, timeout_sec=3.0)
+        if fut.done() and fut.result() is not None:
+            if fut.result().success:
+                self.following_mode_status = "active"
             return fut.result().success, fut.result().message
-        else:
-            return False, "Failed to call activate_person_following service"
+        return False, "Failed to call activate_person_following service"
 
     async def deactivate_person_following(self) -> Tuple[bool, str]:
+        if self.person_follow_mode == "appearance":
+            success, message = await self.appearance_follow.stop()
+            if success:
+                self.following_mode_status = "inactive"
+            return success, message
         self.node.get_logger().info("Deactivating person following...")
         fut = self.deactivate_person_following_client.call_async(Trigger.Request())
-        rclpy.spin_until_future_complete(self.node, fut)
-        if fut.result() is not None:
-            self.following_mode_status = "inactive"
+        rclpy.spin_until_future_complete(self.node, fut, timeout_sec=3.0)
+        if fut.done() and fut.result() is not None:
+            if fut.result().success:
+                self.following_mode_status = "inactive"
             return fut.result().success, fut.result().message
-        else:
-            return False, "Failed to call deactivate_person_following service"
+        return False, "Failed to call deactivate_person_following service"
 
     async def analyze_camera_image(self, prompt: str, context: Any) -> Tuple[bool, str]:
         self.node.get_logger().info(f"FUNCTION CALLED: analyze_camera_image(prompt={prompt})")
@@ -641,7 +735,12 @@ class RosToolServer():
         return True, response
 
     async def check_mode(self) -> Tuple[bool, str]:
+        if self.person_follow_mode == "appearance":
+            locked, _ = await self._call_appearance_service("check")
+            self.following_mode_status = "active" if locked else "inactive"
         controller_statuses = list_controllers(self)
+        if controller_statuses is None:
+            return False, "Controller status unavailable"
         animation_mode = any(c.name == "forward_position_controller" and c.state=="active" for c in controller_statuses)
         walking_mode = any(c.name == "neural_controller" and c.state=="active" for c in controller_statuses)
         following_mode = self.following_mode_status == "active"

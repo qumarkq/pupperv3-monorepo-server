@@ -23,6 +23,7 @@ setup(
         "Pillow",
         # 'ultralytics',  # For YOLOv8 in simulation mode
     ],
+    package_data={"hailo": ["camera_params.yaml"]},
     zip_safe=True,
     maintainer="nathankau",
     maintainer_email="nathankau@gmail.com",

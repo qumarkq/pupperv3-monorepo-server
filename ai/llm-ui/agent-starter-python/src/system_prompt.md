@@ -45,6 +45,10 @@
 * Use the queue_animation tool to do fun tricks like twerking and yoga. For pee, make sure to activate walking before the animation, and then activate walking again after doing the animation.
 
 # Following mode
+* For an explicit upper-shirt colour request (e.g.「跟隨穿紅色上衣的人」), call immediate_stop(), queue_activate_walking(), then activate_appearance_following(shirt_color="red"). Translate colours to red/orange/yellow/green/blue/purple/black/white/gray. Do not use activate_person_following() for this request.
+* Do not invent or infer a shirt colour. Unsupported/compound descriptions, names, faces and ambiguous requests need clarification. If the appearance tool fails, report the failure; never retry through ordinary following.
+* Only report colour following as active when the tool confirms a locked target. If walking activation is still pending, check mode and retry only after it is active and the user has not cancelled.
+* A stop request must use immediate_stop() or deactivate_person_following(), including during target acquisition.
 * If the user requests follow mode you should call these tools:
 1. immediate_stop()
 2. queue_activate_walking()

@@ -1,5 +1,6 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, EmitEvent
+from launch.events import Shutdown
 from launch.substitutions import (
     Command,
     FindExecutable,
@@ -44,6 +45,12 @@ def generate_launch_description():
             "Run `ros2 launch neural_controller launch.py bag_recorder:=True` to enable bag recording, "
             "otherwise the default value of False will not run bag recorder."
         ),
+    )
+
+    declare_follow_mode_arg = DeclareLaunchArgument(
+        name="person_follow_mode", default_value="ordinary",
+        choices=["ordinary", "appearance"],
+        description="Choose exactly one follower. Appearance requires explicit upper-shirt colour.",
     )
 
     #
@@ -234,7 +241,7 @@ def generate_launch_description():
     cmd_vel_mux_node = Node(
         package="cmd_vel_mux",
         executable="cmd_vel_mux_node",
-        parameters=[node_parameters],
+        parameters=[node_parameters, {"timeout_ms": 500}],
         output="both",
     )
 
@@ -281,8 +288,20 @@ def generate_launch_description():
     person_following_node = Node(
         package="person_follower",
         executable="person_follower_node",
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("person_follow_mode"), "' == 'ordinary'",
+        ])),
         output="both",
         parameters=[node_parameters],
+    )
+
+    appearance_following_node = Node(
+        package="person_follower", executable="appearance_person_follower",
+        arguments=["--execute"], output="both",
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("person_follow_mode"), "' == 'appearance'",
+        ])),
+        on_exit=[EmitEvent(event=Shutdown(reason="Appearance follower exited"))],
     )
 
     #
@@ -315,9 +334,10 @@ def generate_launch_description():
         hailo_detection_node,
         # Person following
         person_following_node,
+        appearance_following_node,
     ]
 
     #
     # 8. Return the LaunchDescription with the declared arg + all nodes
     #
-    return LaunchDescription([declare_sim_arg, declare_teleop_arg, declare_bag_recorder_arg, *nodes])
+    return LaunchDescription([declare_sim_arg, declare_teleop_arg, declare_bag_recorder_arg, declare_follow_mode_arg, *nodes])

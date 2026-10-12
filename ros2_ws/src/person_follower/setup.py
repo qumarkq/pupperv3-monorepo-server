@@ -15,6 +15,7 @@ setup(
     ],
     install_requires=[
         "setuptools",
+        "numpy",
     ],
     zip_safe=True,
     maintainer="nathankau",
@@ -25,6 +26,7 @@ setup(
     entry_points={
         "console_scripts": [
             "person_follower_node = person_follower.person_follower_node:main",
+            "appearance_person_follower = person_follower.appearance_person_follower:main",
         ],
     },
 )

@@ -469,6 +469,17 @@ Example:
         return await self.tool_impl.activate_person_following()
 
     @function_tool
+    async def activate_appearance_following(self, shirt_color: str, context: RunContext):
+        """Follow a person wearing an explicitly requested upper-shirt colour.
+
+        shirt_color must be red, orange, yellow, green, blue, purple, black,
+        white or gray. Never guess colour from 'follow me', names or faces.
+        Requires walking mode and ROS appearance mode. Reports success only
+        after a unique stable matching person is locked; failure stops following.
+        """
+        return await self.tool_impl.activate_appearance_following(shirt_color)
+
+    @function_tool
     async def deactivate_person_following(self, context: RunContext):
         """Deactivate the person following behavior."""
         return await self.tool_impl.deactivate_person_following()
